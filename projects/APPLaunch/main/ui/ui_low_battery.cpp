@@ -38,12 +38,13 @@ uint32_t battery_refresh_tick = 0;
 cp0_keyboard_key_filter_t previous_key_filter = nullptr;
 std::set<uint32_t> swallowed_keys;
 
+constexpr uint32_t kIdleBatteryTimerPeriodMs = kBatteryRefreshMs + 50;
 uint32_t warning_timer_period_ms = 0;
 
 void sync_warning_timer_period(bool active_warning) noexcept
 {
     if (!warning_timer) return;
-    const uint32_t target = active_warning ? 250 : kBatteryRefreshMs;
+    const uint32_t target = active_warning ? 250 : kIdleBatteryTimerPeriodMs;
     if (warning_timer_period_ms == target) return;
     warning_timer_period_ms = target;
     lv_timer_set_period(warning_timer, target);
@@ -377,8 +378,8 @@ void init_warning()
     critical_sound_played = false;
     flow.reset();
     battery_refresh_tick = lv_tick_get();
-    warning_timer_period_ms = kBatteryRefreshMs;
-    warning_timer = lv_timer_create(timer_cb, kBatteryRefreshMs, nullptr);
+    warning_timer_period_ms = kIdleBatteryTimerPeriodMs;
+    warning_timer = lv_timer_create(timer_cb, kIdleBatteryTimerPeriodMs, nullptr);
     if (!warning_timer) return;
     previous_key_filter = cp0_keyboard_get_key_filter();
     cp0_keyboard_set_key_filter(reminder_key_filter);

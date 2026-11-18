@@ -23,6 +23,7 @@ static cp0_keyboard_key_handler_t global_key_handler;
 static cp0_keyboard_key_filter_t key_filter;
 static cp0_keyboard_input_lifecycle_t keypad_lifecycle;
 static volatile int lvgl_keypad_intercept;
+static uint32_t keypad_read_seq;
 
 static void keypad_delete_cb(lv_event_t *event)
 {
@@ -90,6 +91,7 @@ static uint32_t lvgl_key_from_evdev(uint16_t code)
 static void keypad_read(lv_indev_t *indev, lv_indev_data_t *data)
 {
     (void)indev;
+    ++keypad_read_seq;
     data->key = 0;
     data->state = LV_INDEV_STATE_RELEASED;
     data->continue_reading = false;
@@ -164,6 +166,10 @@ void cp0_keyboard_drain_lvgl_input(void)
     lv_indev_t *indev = (lv_indev_t *)keypad_lifecycle.handle;
     if (!indev)
         return;
-    while (cp0_keyboard_queue_has_data())
+    while (cp0_keyboard_queue_has_data()) {
+        const uint32_t before = keypad_read_seq;
         lv_indev_read(indev);
+        if (keypad_read_seq == before)
+            break;
+    }
 }
