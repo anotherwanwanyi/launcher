@@ -5,6 +5,7 @@
 
 
 CONFIG_TOOLCHAIN_PREFIX="aarch64-linux-gnu-"
+CONFIG_TOOLCHAIN_FLAGS="-O2"
 
 
 
