@@ -68,7 +68,12 @@ void EscUiWatchdog::run()
 
     std::unique_lock<std::mutex> lock(mutex_);
     while (!stopping_) {
-        wake_.wait_for(lock, kPollInterval);
+        if (!armed_) {
+            tracking = false;
+            wake_.wait(lock, [this] { return stopping_ || armed_; });
+            continue;
+        }
+        wake_.wait_for(lock, kPollInterval, [this] { return stopping_ || !armed_; });
         if (stopping_) break;
         const bool armed = armed_;
         lock.unlock();
