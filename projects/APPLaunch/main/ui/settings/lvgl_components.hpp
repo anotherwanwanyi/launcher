@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "cp0_font_service.hpp"
+#include "cp0_lvgl_app_runner.hpp"
 #include "settings_fonts.hpp"
 #include "cp0_lvgl_app_page_assets.h"
 #include "settings_tree_types.hpp"
@@ -205,6 +206,15 @@ public:
             async_dispatch_.cancel();
             return false;
         }
+        if (async_dispatch_.empty() && async_task_registry_.tracked() == 0)
+            lv_timer_pause(async_dispatch_timer_);
+        std::weak_ptr<bool> weak_alive = async_alive_guard_;
+        async_dispatch_.set_on_enqueue([this, weak_alive]() {
+            cp0_lvgl_invoke([this, weak_alive]() {
+                if (weak_alive.expired()) return;
+                if (async_dispatch_timer_) lv_timer_resume(async_dispatch_timer_);
+            });
+        });
         async_dispatch_ready_.store(true, std::memory_order_release);
         return true;
     }
@@ -306,6 +316,7 @@ public:
             invoke_async_callback(state->callbacks.on_schedule_failed, state->context);
             return false;
         }
+        if (async_dispatch_timer_) lv_timer_resume(async_dispatch_timer_);
         return true;
     }
 
@@ -345,13 +356,18 @@ private:
         if (!self) return;
         self->async_task_registry_.reap_finished();
         self->async_dispatch_.drain();
+        if (self->async_dispatch_.empty() && self->async_task_registry_.tracked() == 0)
+            lv_timer_pause(timer);
     }
 
     template <typename Result>
     void schedule_async_task(const std::shared_ptr<AsyncTaskState<Result>> &state)
     {
         if (!state || !state->token.valid()) return;
-        if (enqueue_async(state->token, [this, state] { process_async_task(state); })) return;
+        if (enqueue_async(state->token, [this, state] { process_async_task(state); })) {
+            if (async_dispatch_timer_) lv_timer_resume(async_dispatch_timer_);
+            return;
+        }
 
         state->context.stage = AsyncTaskStage::ScheduleFailed;
         invoke_async_callback(state->callbacks.on_schedule_failed, state->context);
@@ -430,6 +446,7 @@ private:
     AsyncDispatch async_dispatch_;
     AsyncTaskRegistry async_task_registry_;
     lv_timer_t *async_dispatch_timer_ = nullptr;
+    std::shared_ptr<bool> async_alive_guard_ = std::make_shared<bool>(true);
     std::atomic_bool async_dispatch_ready_{false};
     bool async_dispatch_unavailable_ = false;
 };

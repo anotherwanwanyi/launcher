@@ -32,6 +32,7 @@ public:
         bool accepting = true;
         uint64_t generation = 1;
         std::deque<Item> pending;
+        std::function<void()> on_enqueue;
     };
 
     struct Token {
@@ -71,6 +72,22 @@ public:
         return enqueue(token(), std::move(callback));
     }
 
+    void set_on_enqueue(std::function<void()> cb)
+    {
+        auto state = state_;
+        if (!state) return;
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->on_enqueue = std::move(cb);
+    }
+
+    bool empty() const noexcept
+    {
+        auto state = state_;
+        if (!state) return true;
+        std::lock_guard<std::mutex> lock(state->mutex);
+        return state->pending.empty();
+    }
+
     bool enqueue(Token callback_token, std::function<void()> callback)
     {
         if (!callback) return false;
@@ -78,14 +95,22 @@ public:
         auto state = callback_token.state.lock();
         if (!state) return false;
 
+        std::function<void()> on_enqueue;
         try {
             std::lock_guard<std::mutex> lock(state->mutex);
             if (!state->accepting || callback_token.generation == 0 ||
                 callback_token.generation != state->generation)
                 return false;
             state->pending.push_back(Item{callback_token.generation, std::move(callback)});
+            on_enqueue = state->on_enqueue;
         } catch (...) {
             return false;
+        }
+        if (on_enqueue) {
+            try {
+                on_enqueue();
+            } catch (...) {
+            }
         }
         return true;
     }
@@ -182,14 +207,22 @@ public:
         auto state = callback_token.state.lock();
         if (!state) return false;
 
+        std::function<void()> on_enqueue;
         try {
             std::lock_guard<std::mutex> lock(state->mutex);
             if (!state->accepting || callback_token.generation == 0 ||
                 callback_token.generation != state->generation)
                 return false;
             state->pending.push_back(Item{callback_token.generation, std::move(callback)});
+            on_enqueue = state->on_enqueue;
         } catch (...) {
             return false;
+        }
+        if (on_enqueue) {
+            try {
+                on_enqueue();
+            } catch (...) {
+            }
         }
         return true;
     }
