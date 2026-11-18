@@ -74,7 +74,20 @@ try:
 except Exception:
     _git_commit = 'unknown'
 print('-- Launcher git commit: %s' % _git_commit)
-_launcher_version = os.environ.get('APPLAUNCH_VERSION', '0.0.0-dev')
+_launcher_version = os.environ.get('APPLAUNCH_VERSION', '').strip()
+if not _launcher_version:
+    try:
+        _tag = subprocess.check_output(
+            ['git', 'describe', '--tags', '--match', 'launcher-v*'],
+            cwd=_repo_root,
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+        if _tag.startswith('launcher-v'):
+            _launcher_version = _tag[len('launcher-v'):]
+    except Exception:
+        pass
+if not _launcher_version:
+    _launcher_version = '0.0.0-dev'
 _launcher_channel = os.environ.get('APPLAUNCH_CHANNEL', 'development')
 if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?', _launcher_version):
     raise ValueError('APPLAUNCH_VERSION must be a semantic version')
