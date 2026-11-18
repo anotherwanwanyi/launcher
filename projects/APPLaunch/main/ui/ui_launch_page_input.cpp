@@ -5,6 +5,7 @@
  */
 
 #include "ui_launch_page.h"
+#include "animation/ui_launcher_animation.h"
 
 #include "hal_lvgl_bsp.h"
 #include "input_keys.h"
@@ -95,6 +96,8 @@ void UILaunchPage::handle_home_key(lv_event_t *event)
 
         case KEY_LEFT:
         {
+            if (navigation_.is_animating())
+                launcher_home_animation::finish_active();
             if (navigation_.keyboard_navigation_enabled())
             {
                 audio_play_switch();
@@ -105,6 +108,8 @@ void UILaunchPage::handle_home_key(lv_event_t *event)
 
         case KEY_RIGHT:
         {
+            if (navigation_.is_animating())
+                launcher_home_animation::finish_active();
             if (navigation_.keyboard_navigation_enabled())
             {
                 audio_play_switch();

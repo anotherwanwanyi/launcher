@@ -15,11 +15,13 @@
 
 namespace {
 
-constexpr int kLauncherAnimationTimeMs = 200;
+constexpr int kLauncherAnimationTimeMs = 120;
+void *s_active_home_anim_var = nullptr;
 
 struct LauncherHomeAnimContext {
     lv_obj_t *items[launcher_carousel_layout::kElementCount];
     bool to_right;
+    void *anim_var = nullptr;
     launcher_home_animation::ReadyCallback ready_cb;
     launcher_home_animation::AliveCallback alive_cb;
 };
@@ -143,6 +145,8 @@ void animate_home(LauncherHomeAnimContext *ctx, LvglAnimation *anim)
 
 void finish_home(const std::shared_ptr<LauncherHomeAnimContext> &ctx)
 {
+    if (s_active_home_anim_var && s_active_home_anim_var == ctx->anim_var)
+        s_active_home_anim_var = nullptr;
     if (ctx->alive_cb && !ctx->alive_cb()) return;
     constexpr size_t title_offset = launcher_carousel_layout::kTitleOffset;
     const auto &slots = launcher_carousel_layout::kSlots;
@@ -168,6 +172,7 @@ void launcher_home_animate(lv_obj_t **items, bool to_right,
                            launcher_home_animation::ReadyCallback ready_cb,
                            launcher_home_animation::AliveCallback alive_cb)
 {
+    launcher_home_animation::finish_active();
     auto ctx = std::make_shared<LauncherHomeAnimContext>();
     ctx->to_right = to_right;
     ctx->ready_cb = ready_cb;
@@ -177,21 +182,33 @@ void launcher_home_animate(lv_obj_t **items, bool to_right,
         ctx->items[i] = items[i];
     }
 
-    if (!LvglAnimation::start_raw(
+    void *handle = LvglAnimation::start_raw_handle(
         kLauncherAnimationTimeMs,
         [ctx](LvglAnimation *anim) {
             animate_home(ctx.get(), anim);
         },
         [ctx](LvglAnimation *) {
             finish_home(ctx);
-        })) {
+        });
+    if (!handle) {
         finish_home(ctx);
+        return;
     }
+    ctx->anim_var = handle;
+    s_active_home_anim_var = handle;
 }
 
 } // namespace
 
 namespace launcher_home_animation {
+
+void finish_active()
+{
+    void *var = s_active_home_anim_var;
+    if (!var) return;
+    s_active_home_anim_var = nullptr;
+    lv_anim_delete(var, nullptr);
+}
 
 void animate_right(lv_obj_t **items, ReadyCallback ready_cb, AliveCallback alive_cb)
 {

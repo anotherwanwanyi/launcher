@@ -240,6 +240,7 @@ void UILaunchPage::on_root_deleted(lv_event_t *event) noexcept
         self->left_arrow_button_ = nullptr;
         self->right_arrow_button_ = nullptr;
         self->home_key_registered_ = false;
+        launcher_home_animation::finish_active();
         self->navigation_.cancel_navigation();
     } catch (...) {
     }
@@ -273,6 +274,7 @@ void UILaunchPage::on_owned_obj_deleted(lv_event_t *event) noexcept
         }
         if (carousel_object_deleted) {
             *self->carousel_alive_ = false;
+            launcher_home_animation::finish_active();
             self->cancel_switch_animation();
         }
         if (recover_gif) {
@@ -334,6 +336,8 @@ void UILaunchPage::reload_home_icons(const std::vector<std::string> &icon_paths)
 
 void UILaunchPage::launch_selected_app()
 {
+    if (navigation_.is_animating())
+        launcher_home_animation::finish_active();
     if (launch_)
         launch_->launch_app();
 }
@@ -389,6 +393,8 @@ void UILaunchPage::switch_right()
     if (std::any_of(carousel_elements_.begin(), carousel_elements_.begin() +
                     launcher_carousel_layout::kElementCount,
                     [](lv_obj_t *element) { return element == nullptr; })) return;
+    if (navigation_.is_animating())
+        launcher_home_animation::finish_active();
     if (!navigation_.begin_navigation(LauncherNavigationDirection::PREVIOUS))
         return;
     active_navigation_moves_next_ = false;
@@ -430,6 +436,8 @@ void UILaunchPage::switch_left()
     if (std::any_of(carousel_elements_.begin(), carousel_elements_.begin() +
                     launcher_carousel_layout::kElementCount,
                     [](lv_obj_t *element) { return element == nullptr; })) return;
+    if (navigation_.is_animating())
+        launcher_home_animation::finish_active();
     if (!navigation_.begin_navigation(LauncherNavigationDirection::NEXT))
         return;
     active_navigation_moves_next_ = true;

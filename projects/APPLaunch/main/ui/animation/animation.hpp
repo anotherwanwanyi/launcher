@@ -44,14 +44,22 @@ public:
                           finished_callback_t finished = nullptr,
                           Type type = overshoot)
     {
+        return start_raw_handle(time, std::move(callback), std::move(finished), type) != nullptr;
+    }
+
+    static void *start_raw_handle(int time,
+                                  raw_callback_t callback,
+                                  finished_callback_t finished = nullptr,
+                                  Type type = overshoot)
+    {
         LvglAnimation *self = new LvglAnimation(time, type);
         self->raw_callback_ = std::move(callback);
         self->finished_callback_ = std::move(finished);
         if (!self->launch(nullptr, self, 0, LV_BEZIER_VAL_MAX, true)) {
             delete self;
-            return false;
+            return nullptr;
         }
-        return true;
+        return self;
     }
 
     int32_t Animation_map(int32_t start, int32_t end)
