@@ -41,6 +41,8 @@
 #include "lvgl/lvgl.h"
 #include "../../../../SDK/components/utilities/include/sample_log.h"
 
+extern void cp0_lvgl_wake_notify(void);
+
 #undef SLOGD
 #define SLOGD(...) do { } while (0)
 
@@ -285,7 +287,8 @@ static void enqueue_key(const struct key_item *src) {
     SLOGD("[KBD] enqueue code=%u state=%s sym=%s utf8='%s' cp=0x%x mods=0x%x run=%d home_flag=%d",
           item.key_code, kbd_state_name(item.key_state), item.sym_name,
           utf8_dbg, item.codepoint, item.mods, LVGL_RUN_FLAGE, cp0_esc_state_read());
-    (void)cp0_keyboard_queue_push(&item);
+    if (cp0_keyboard_queue_push(&item))
+        cp0_lvgl_wake_notify();
 }
 
 int cp0_keyboard_inject(uint32_t key_code, int key_state, uint32_t mods)

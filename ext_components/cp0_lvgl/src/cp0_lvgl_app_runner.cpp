@@ -9,6 +9,43 @@
  */
 
 #include "cp0_lvgl_app_runner.hpp"
+#include <mutex>
+#include <vector>
+#if !defined(HAL_PLATFORM_SDL)
+#include "cp0/cp0_keyboard_lvgl_input.h"
+#endif
+
+namespace {
+std::mutex g_lvgl_invoke_mutex;
+std::vector<std::function<void()>> g_lvgl_invoke_queue;
+
+void drain_lvgl_invoke_queue()
+{
+    std::vector<std::function<void()>> pending;
+    {
+        std::lock_guard<std::mutex> lock(g_lvgl_invoke_mutex);
+        pending.swap(g_lvgl_invoke_queue);
+    }
+    for (auto &fn : pending) {
+        if (fn) fn();
+    }
+}
+} // namespace
+
+void cp0_lvgl_invoke(std::function<void()> fn)
+{
+    if (!fn) return;
+    {
+        std::lock_guard<std::mutex> lock(g_lvgl_invoke_mutex);
+        g_lvgl_invoke_queue.push_back(std::move(fn));
+    }
+    cp0_lvgl_wake();
+}
+
+extern "C" void cp0_lvgl_wake_notify(void)
+{
+    cp0_lvgl_wake();
+}
 
 #include "cp0_runner_contract.hpp"
 #include "cp0_runner_shutdown.hpp"
@@ -226,6 +263,10 @@ int cp0_lvgl_run(Cp0LvglRunOptions options)
         lv_refr_now(nullptr);
 
         while (!options.should_quit || !options.should_quit()) {
+            drain_lvgl_invoke_queue();
+#if !defined(HAL_PLATFORM_SDL)
+            cp0_keyboard_drain_lvgl_input();
+#endif
             uint32_t milliseconds = lv_timer_handler();
             if (options.should_quit && options.should_quit())
                 break;

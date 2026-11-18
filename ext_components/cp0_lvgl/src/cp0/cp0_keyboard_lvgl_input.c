@@ -152,8 +152,18 @@ void cp0_keyboard_create_lvgl_input_devices(void)
     lv_indev_t *indev = lv_indev_create();
     if (indev) {
         lv_indev_set_type(indev, LV_INDEV_TYPE_KEYPAD);
+        lv_indev_set_mode(indev, LV_INDEV_MODE_EVENT);
         lv_indev_set_read_cb(indev, keypad_read);
         lv_indev_add_event_cb(indev, keypad_delete_cb, LV_EVENT_DELETE, indev);
     }
     cp0_keyboard_input_finish_create(&keypad_lifecycle, indev);
+}
+
+void cp0_keyboard_drain_lvgl_input(void)
+{
+    lv_indev_t *indev = (lv_indev_t *)keypad_lifecycle.handle;
+    if (!indev)
+        return;
+    while (cp0_keyboard_queue_has_data())
+        lv_indev_read(indev);
 }

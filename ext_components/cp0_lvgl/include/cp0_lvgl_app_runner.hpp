@@ -31,6 +31,7 @@ struct Cp0LvglAppHooks
 
 int cp0_lvgl_run(Cp0LvglRunOptions options = {});
 void cp0_lvgl_wake();
+void cp0_lvgl_invoke(std::function<void()> fn);
 
 template <class PageT>
 int cp0_lvgl_run_app(Cp0LvglAppHooks hooks = {})
