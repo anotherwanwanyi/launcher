@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <time.h>
 #ifdef __linux__
+#include <sys/eventfd.h>
 #include <sys/ioctl.h>
 #include <sys/timerfd.h>
 #include <linux/input.h>
@@ -61,14 +62,34 @@ static cp0_keyboard_thread_lifecycle_t keyboard_thread_lifecycle = {0};
 static pthread_mutex_t keyboard_thread_mutex = PTHREAD_MUTEX_INITIALIZER;
 #ifdef __linux__
 static struct libinput *g_libinput = NULL;
+static int keyboard_wake_fd = -1;
+
+static void keyboard_wake_notify(void) {
+    int fd = __atomic_load_n(&keyboard_wake_fd, __ATOMIC_ACQUIRE);
+    if (fd >= 0) {
+        uint64_t one = 1;
+        ssize_t unused = write(fd, &one, sizeof(one));
+        (void)unused;
+    }
+}
+
+static void keyboard_wake_drain(int fd) {
+    if (fd < 0) return;
+    uint64_t val = 0;
+    while (read(fd, &val, sizeof(val)) > 0) {
+    }
+}
+
 void keyboard_pause(void) {
-    keyboard_paused_flag = 1;
+    __atomic_store_n(&keyboard_paused_flag, 1, __ATOMIC_RELEASE);
     if (g_libinput) libinput_suspend(g_libinput);
+    keyboard_wake_notify();
     SLOGI("[KBD] keyboard_pause()");
 }
 void keyboard_resume(void) {
     if (g_libinput) libinput_resume(g_libinput);
-    keyboard_paused_flag = 0;
+    __atomic_store_n(&keyboard_paused_flag, 0, __ATOMIC_RELEASE);
+    keyboard_wake_notify();
     SLOGI("[KBD] keyboard_resume()");
 }
 #else
@@ -596,10 +617,14 @@ void *keyboard_read_thread(void *argv) {
 
     /* ---------- 4. event loop ---------- */
     int li_fd = libinput_get_fd(kc.li);
-    struct pollfd pfds[2] = {
+    int wake_fd = __atomic_load_n(&keyboard_wake_fd, __ATOMIC_ACQUIRE);
+    struct pollfd pfds[3] = {
         { .fd = li_fd,        .events = POLLIN },
         { .fd = kc.repeat_fd, .events = POLLIN },
+        { .fd = wake_fd,      .events = POLLIN },
     };
+    nfds_t nfds = (wake_fd >= 0) ? 3 : 2;
+    int poll_timeout = (wake_fd >= 0) ? -1 : 100;
 
     g_libinput = kc.li;
     SLOGI("Start listening for keyboard input (%s)", device_path);
@@ -607,16 +632,26 @@ void *keyboard_read_thread(void *argv) {
 
     while (!atomic_load_explicit(&keyboard_shutdown_requested,
                                  memory_order_acquire)) {
-        if (keyboard_paused_flag) {
-            usleep(50000);
+        if (__atomic_load_n(&keyboard_paused_flag, __ATOMIC_ACQUIRE)) {
+            if (wake_fd >= 0) {
+                struct pollfd wpfd = { .fd = wake_fd, .events = POLLIN };
+                int wr = poll(&wpfd, 1, -1);
+                if (wr < 0 && errno != EINTR) break;
+                if (wr > 0 && (wpfd.revents & POLLIN))
+                    keyboard_wake_drain(wake_fd);
+            } else {
+                usleep(50000);
+            }
             continue;
         }
-        int pr = poll(pfds, 2, 100);
+        int pr = poll(pfds, nfds, poll_timeout);
         if (pr < 0) {
             if (errno == EINTR) continue;
             perror("poll"); break;
         }
         if (pr == 0) continue;
+        if (wake_fd >= 0 && (pfds[2].revents & POLLIN))
+            keyboard_wake_drain(wake_fd);
 
         /* keyboard event */
         if (pfds[0].revents & POLLIN) {
@@ -692,9 +727,20 @@ void init_input(void)
 
     atomic_store_explicit(&keyboard_shutdown_requested, false,
                           memory_order_release);
+#ifdef __linux__
+    if (keyboard_wake_fd < 0) {
+        int efd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+        if (efd >= 0)
+            __atomic_store_n(&keyboard_wake_fd, efd, __ATOMIC_RELEASE);
+    }
+#endif
     if (pthread_create(&keyboard_read_thread_id, NULL, keyboard_read_thread, keyboard_device_arg) != 0) {
         perror("pthread_create keyboard_read_thread");
         free(keyboard_device_arg);
+#ifdef __linux__
+        int efd = __atomic_exchange_n(&keyboard_wake_fd, -1, __ATOMIC_ACQ_REL);
+        if (efd >= 0) close(efd);
+#endif
         pthread_mutex_unlock(&keyboard_thread_mutex);
         return;
     }
@@ -710,6 +756,9 @@ void deinit_input(void)
     int should_join = 0;
     atomic_store_explicit(&keyboard_shutdown_requested, true,
                           memory_order_release);
+#ifdef __linux__
+    keyboard_wake_notify();
+#endif
     pthread_mutex_lock(&keyboard_thread_mutex);
     should_join = cp0_keyboard_thread_begin_deinit(
         &keyboard_thread_lifecycle);
@@ -718,6 +767,12 @@ void deinit_input(void)
     if (!should_join) return;
     const int joined = !pthread_equal(thread, pthread_self()) &&
                        pthread_join(thread, NULL) == 0;
+#ifdef __linux__
+    if (joined) {
+        int efd = __atomic_exchange_n(&keyboard_wake_fd, -1, __ATOMIC_ACQ_REL);
+        if (efd >= 0) close(efd);
+    }
+#endif
     pthread_mutex_lock(&keyboard_thread_mutex);
     if (joined)
         cp0_keyboard_thread_finish_deinit(&keyboard_thread_lifecycle);
