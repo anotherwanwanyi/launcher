@@ -207,7 +207,12 @@ void update_timer_period()
 {
     if (!s_timer) return;
     /* The panel is static in every state, so no animation frames are needed;
-     * only a maturing hold is polled faster than the idle check. */
+     * when fully black/locked nothing changes until a key arrives. */
+    if (s_model.active() && !s_lock.visible()) {
+        lv_timer_pause(s_timer);
+        return;
+    }
+    lv_timer_resume(s_timer);
     lv_timer_set_period(s_timer, s_model.hold_pending() ? kHoldPollMs : kIdleCheckMs);
 }
 
@@ -502,6 +507,8 @@ void show_lockscreen_panel()
     show_hint(s_lock.state() == LockscreenState::Armed
                   ? "Press ENTER to unlock"
                   : "Press TAB to unlock");
+    update_timer_period();
+    if (s_timer) lv_timer_reset(s_timer);
 }
 
 /* Back to (1) after the visible state timed out. */
@@ -511,6 +518,7 @@ void sleep_lockscreen()
     hide_hint();
     suspend_screen_off_backlight();
     play_lockscreen_sound("lock.mp3");
+    update_timer_period();
 }
 
 void timer_cb(lv_timer_t *timer) noexcept
