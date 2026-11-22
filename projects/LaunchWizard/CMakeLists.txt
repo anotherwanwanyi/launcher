@@ -89,6 +89,27 @@ if(BUILD_TESTING)
         target_compile_options(launch_wizard_wifi_tests PRIVATE -UNDEBUG -ffunction-sections -fdata-sections)
         target_link_options(launch_wizard_wifi_tests PRIVATE -Wl,--gc-sections)
         add_test(NAME launch_wizard.wifi COMMAND launch_wizard_wifi_tests)
+
+        # The whole apply pipeline in dry-run mode: commands are printed, never
+        # executed, so the step order and the issued expansion command stay
+        # covered without touching the host.
+        add_executable(launch_wizard_apply_pipeline_tests
+            tests/test_apply_pipeline.cpp
+            main/ui/wizard_service.cpp
+        )
+        target_link_libraries(launch_wizard_apply_pipeline_tests PRIVATE LaunchWizard::core)
+        target_compile_definitions(launch_wizard_apply_pipeline_tests PRIVATE LAUNCH_WIZARD_DRY_RUN=1)
+        add_test(NAME launch_wizard.apply_pipeline COMMAND launch_wizard_apply_pipeline_tests)
+
+        # The skip path (Imager-provisioned device) must expand and reboot; the
+        # next boot must hand off without expanding again.
+        add_executable(launch_wizard_skipped_boot_tests
+            tests/test_skipped_boot.cpp
+            main/ui/wizard_service.cpp
+        )
+        target_link_libraries(launch_wizard_skipped_boot_tests PRIVATE LaunchWizard::core)
+        target_compile_definitions(launch_wizard_skipped_boot_tests PRIVATE LAUNCH_WIZARD_DRY_RUN=1)
+        add_test(NAME launch_wizard.skipped_boot COMMAND launch_wizard_skipped_boot_tests)
     endif()
 endif()
 
