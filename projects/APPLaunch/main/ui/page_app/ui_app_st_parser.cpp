@@ -15,9 +15,11 @@ void UISTPage::reset_terminal()
     cursor_ = Cursor{};
     cursor_.attr.fg = DEFAULT_FG;
     cursor_.attr.bg = DEFAULT_BG;
-    saved_cursor_ = cursor_;
+    saved_cursor_ = {cursor_, cursor_};
     scroll_top_ = 0;
     scroll_bot_ = term_rows_ - 1;
+    saved_scroll_top_ = scroll_top_;
+    saved_scroll_bot_ = scroll_bot_;
     scrollback_.clear();
     scrollback_offset_ = 0;
     mode_ = MODE_WRAP;
@@ -25,8 +27,68 @@ void UISTPage::reset_terminal()
     utf8_decoder_.reset();
     cursor_visible_mode_ = true;
     csi_reset();
+    Glyph blank;
     for (auto &row : screen_)
-        for (auto &cell : row) cell = blank_glyph();
+        for (auto &cell : row) cell = blank;
+    for (auto &row : alt_screen_)
+        for (auto &cell : row) cell = blank;
+    dirty_all();
+}
+
+bool UISTPage::alt_screen_active() const
+{
+    return (mode_ & MODE_ALTSCREEN) != 0;
+}
+
+void UISTPage::save_cursor()
+{
+    saved_cursor_[alt_screen_active() ? 1 : 0] = cursor_;
+}
+
+void UISTPage::restore_cursor()
+{
+    cursor_ = saved_cursor_[alt_screen_active() ? 1 : 0];
+    move_to(cursor_.x, cursor_.y);
+}
+
+void UISTPage::clear_screen_default()
+{
+    Glyph blank;
+    for (int y = 0; y < term_rows_; ++y) {
+        for (int x = 0; x < term_cols_; ++x) screen_[y][x] = blank;
+        dirty_row(y);
+    }
+}
+
+void UISTPage::enter_alt_screen(bool clear_alt)
+{
+    if (alt_screen_active()) {
+        if (clear_alt) clear_screen_default();
+        return;
+    }
+    scrollback_offset_ = 0;
+    saved_scroll_top_ = scroll_top_;
+    saved_scroll_bot_ = scroll_bot_;
+    std::swap(screen_, alt_screen_);
+    mode_ |= MODE_ALTSCREEN;
+    scroll_top_ = 0;
+    scroll_bot_ = term_rows_ - 1;
+    if (clear_alt) clear_screen_default();
+    dirty_all();
+}
+
+void UISTPage::leave_alt_screen(bool clear_alt)
+{
+    if (!alt_screen_active()) return;
+    if (clear_alt) clear_screen_default();
+    std::swap(screen_, alt_screen_);
+    mode_ &= ~MODE_ALTSCREEN;
+    scroll_top_ = clamp(saved_scroll_top_, 0, term_rows_ - 1);
+    scroll_bot_ = clamp(saved_scroll_bot_, 0, term_rows_ - 1);
+    if (scroll_top_ >= scroll_bot_) {
+        scroll_top_ = 0;
+        scroll_bot_ = term_rows_ - 1;
+    }
     dirty_all();
 }
 
@@ -90,7 +152,7 @@ void UISTPage::scroll_up(int top, int bottom, int count)
     bottom = clamp(bottom, 0, term_rows_ - 1);
     if (top > bottom || count <= 0) return;
     count = std::min(count, bottom - top + 1);
-    if (!big_mode_ && top == 0 && bottom == term_rows_ - 1)
+    if (!big_mode_ && !alt_screen_active() && top == 0 && bottom == term_rows_ - 1)
         for (int y = 0; y < count; ++y) append_scrollback_row(screen_[y]);
     for (int y = top; y <= bottom - count; ++y) {
         screen_[y] = screen_[y + count];
@@ -336,8 +398,26 @@ void UISTPage::handle_private_mode(char final)
         case 25:
             cursor_visible_mode_ = set;
             break;
+        case 47:
+            if (set) enter_alt_screen(true);
+            else leave_alt_screen(false);
+            break;
+        case 1047:
+            if (set) enter_alt_screen(true);
+            else leave_alt_screen(true);
+            break;
+        case 1048:
+            if (set) save_cursor();
+            else restore_cursor();
+            break;
         case 1049:
-            if (set) clear_region(0, 0, term_cols_ - 1, term_rows_ - 1);
+            if (set) {
+                if (!alt_screen_active()) save_cursor();
+                enter_alt_screen(true);
+            } else if (alt_screen_active()) {
+                leave_alt_screen(true);
+                restore_cursor();
+            }
             break;
         default:
             break;
@@ -411,11 +491,8 @@ void UISTPage::handle_csi(char final)
         }
         move_to(0, 0);
         break;
-    case 's': saved_cursor_ = cursor_; break;
-    case 'u':
-        cursor_ = saved_cursor_;
-        move_to(cursor_.x, cursor_.y);
-        break;
+    case 's': save_cursor(); break;
+    case 'u': restore_cursor(); break;
     case 'c': pty_write("\033[?1;2c", 7); break;
     default: break;
     }
@@ -438,11 +515,10 @@ void UISTPage::handle_esc(uint8_t code)
         parse_state_ = ParseState::Charset;
         return;
     case '7':
-        saved_cursor_ = cursor_;
+        save_cursor();
         break;
     case '8':
-        cursor_ = saved_cursor_;
-        move_to(cursor_.x, cursor_.y);
+        restore_cursor();
         break;
     case 'D': newline(false); break;
     case 'E': newline(true); break;

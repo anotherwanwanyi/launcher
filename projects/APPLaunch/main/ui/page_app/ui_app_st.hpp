@@ -85,6 +85,7 @@ class UISTPage : public AppPage
         MODE_WRAP      = 1 << 0,
         MODE_INSERT    = 1 << 1,
         MODE_APPCURSOR = 1 << 2,
+        MODE_ALTSCREEN = 1 << 3,
     };
 
     enum class ParseState {
@@ -141,6 +142,7 @@ public:
 
 private:
     std::array<std::array<Glyph, MAX_COLS>, MAX_ROWS> screen_{};
+    std::array<std::array<Glyph, MAX_COLS>, MAX_ROWS> alt_screen_{};
     std::array<std::vector<RenderSegment>, ROWS> row_segments_{};
     std::array<bool, ROWS> dirty_{};
     std::vector<std::array<Glyph, MAX_COLS>> scrollback_;
@@ -151,9 +153,11 @@ private:
     int viewport_y_ = 0;
     bool big_view_locked_ = false;
     Cursor cursor_{};
-    Cursor saved_cursor_{};
+    std::array<Cursor, 2> saved_cursor_{};
     int scroll_top_ = 0;
     int scroll_bot_ = NORMAL_ROWS - 1;
+    int saved_scroll_top_ = 0;
+    int saved_scroll_bot_ = NORMAL_ROWS - 1;
     uint16_t mode_ = MODE_WRAP;
 
     ParseState parse_state_ = ParseState::Normal;
@@ -219,6 +223,12 @@ private:
     void follow_cursor_in_big_mode();
 
     void reset_terminal();
+    bool alt_screen_active() const;
+    void save_cursor();
+    void restore_cursor();
+    void clear_screen_default();
+    void enter_alt_screen(bool clear_alt);
+    void leave_alt_screen(bool clear_alt);
     void clear_region(int x1, int y1, int x2, int y2);
     void normalize_wide_row(int row);
     void move_to(int x, int y);

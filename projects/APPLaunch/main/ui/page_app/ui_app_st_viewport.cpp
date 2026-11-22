@@ -29,7 +29,7 @@ void UISTPage::update_scrollbar()
     }
 
     int history_rows = static_cast<int>(scrollback_.size());
-    if (history_rows <= 0) {
+    if (alt_screen_active() || history_rows <= 0) {
         lv_obj_add_flag(scrollbar_track_, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(scrollbar_thumb_, LV_OBJ_FLAG_HIDDEN);
         return;

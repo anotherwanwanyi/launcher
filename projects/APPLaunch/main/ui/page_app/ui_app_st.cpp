@@ -217,6 +217,10 @@ const std::array<UISTPage::Glyph, UISTPage::MAX_COLS> &UISTPage::display_row(int
         int screen_row = clamp(viewport_y_ + row, 0, term_rows_ - 1);
         return screen_[static_cast<size_t>(screen_row)];
     }
+    if (alt_screen_active()) {
+        if (row < 0 || row >= term_rows_) return EMPTY_ROW;
+        return screen_[static_cast<size_t>(row)];
+    }
 
     int history_rows = static_cast<int>(scrollback_.size());
     int total_rows = history_rows + term_rows_;
@@ -228,6 +232,7 @@ const std::array<UISTPage::Glyph, UISTPage::MAX_COLS> &UISTPage::display_row(int
 
 void UISTPage::scrollback_page(int direction)
 {
+    if (alt_screen_active()) return;
     int old_offset = scrollback_offset_;
     int page_size = std::max(1, visible_rows() - 1);
     if (direction > 0)
