@@ -474,7 +474,12 @@ void UISTPage::render_row(int row)
         RenderSegment &current = rendered[index];
         if (!current.label) current.label = create_segment_label();
         if (!current.label) continue;
-        int width = wanted.columns * CHAR_W;
+        const bool transparent_bg = (wanted.bg == DEFAULT_BG);
+        const int base_width = wanted.columns * CHAR_W;
+        // Keep a +2px clip margin on default-bg segments so 8px bold glyphs (e.g. w/W/%)
+        // are never sliced at the 7px cell edge or painted over by the next segment.
+        const int max_width = std::max(0, TERM_W - wanted.x * CHAR_W);
+        const int width = transparent_bg ? std::min(max_width, base_width + 2) : base_width;
         bool changed = current.hidden || current.x != wanted.x || current.width != width ||
                        current.fg != wanted.fg || current.bg != wanted.bg ||
                        current.text != wanted.text;
@@ -491,6 +496,7 @@ void UISTPage::render_row(int row)
         lv_obj_set_size(current.label, width, CHAR_H);
         lv_obj_set_style_text_color(current.label, palette(wanted.fg), 0);
         lv_obj_set_style_bg_color(current.label, palette(wanted.bg), 0);
+        lv_obj_set_style_bg_opa(current.label, transparent_bg ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
         lv_label_set_text(current.label, wanted.text.c_str());
     }
     for (size_t index = desired.size(); index < rendered.size(); ++index) {
